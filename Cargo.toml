@@ -1,0 +1,14 @@
+[package]
+name = "ludis"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "ludis-service"
+path = "src/bin/main.rs"
+
+[dependencies]
+tokio= { version = "1.39.3", features = ["full"] }
+bytes = "1.7.2"
+
+

@@ -29,48 +29,53 @@ impl BucketDb{
 
     }
 
-    fn hash(&self, key: &str) -> usize{
+    fn hash(&self, key: Bytes) -> usize{
         let mut hasher = DefaultHasher::new();
         key.hash(&mut hasher);
         hasher.finish() as usize
     }
 
-    pub fn get(&self, key: String) -> Option<Bytes>{
-        let index = self.hash(key.as_str()) % self.capacity;
+    pub fn get(&self, key: Bytes) -> Option<Bytes>{
+        let index = self.hash(key.clone()) % self.capacity;
         let data = self.shared_bucket.get(index);
         match data {
             Some(data) => {
                 let state = data.state.read().unwrap();
-                state.entries.get(key.as_str()).map(|b| b.data.clone())
+                state.entries.get(&key).map(|b| b.data.clone())
             },
             None => None
         }
     }
 
-    pub fn keys(&self, key_start_op :Option<String>) -> Vec<String> {
+    pub fn keys(&self, key_start_op :Option<Bytes>) -> Vec<Bytes> {
         let key_start;
-        let key_end;
+
         match key_start_op {
             Some(start_key) => {
                 key_start = start_key;
-                key_end = format!("{}{}", key_start, char::MAX);
+                let mut end = key_start.to_vec();
+                if let Some(last_byte) = end.last_mut() {
+                    *last_byte += 1;
+                }
+                let key_end = Bytes::from(end);
+                self.shared_bucket.iter().flat_map(|bucket|{bucket.state.read().unwrap().entries.range(key_start.clone()..key_end.clone()).map(|(key, _)| key.clone()).collect::<Vec<_>>()}).collect()
             },
             None => {
-                key_start = String::from('\0');
-                key_end = String::from(char::MAX);
+                // self.shared_bucket.iter().flat_map(|bucket|{bucket.state.read().unwrap().entries.keys().collect()}).collect()
+                self.shared_bucket.iter().flat_map(|bucket|{bucket.state.read().unwrap().entries.keys().map(|(key)| key.clone()).collect::<Vec<_>>()}).collect()
             }
         }
-        self.shared_bucket.iter().flat_map(|bucket|{bucket.state.read().unwrap().entries.range(key_start.clone()..key_end.clone()).map(|(key, _)| key.clone()).collect::<Vec<_>>()}).collect()
+
     }
 
 
-    pub fn get_with_instant(&self, key: String) -> Option<(Bytes, Option<Instant>)>{
-        let index = self.hash(key.as_str()) % self.capacity;
+    pub fn get_with_instant(&self, key: Bytes) -> Option<(Bytes, Option<Instant>)>{
+        let index = self.hash(key.clone()) % self.capacity;
         let data = self.shared_bucket.get(index);
         match data {
             Some(data) => {
                 let state = data.state.read().unwrap();
-                if let Some(data) = state.entries.get(key.as_str()).map(|b| b.data.clone()){
+                if let Some(data) = state.entries.get(&key).map(|b| b.data.clone()){
                     let instant = state.key_expirations.get(&key).cloned();
                     Some((data.clone(), instant))
                 }else {
@@ -83,8 +88,8 @@ impl BucketDb{
     }
 
 
-    pub fn set_newest(&mut self, key: String, value: Bytes, expire: Instant){
-        let index = self.hash(key.as_str()) % self.capacity;
+    pub fn set_newest(&mut self, key: Bytes, value: Bytes, expire: Instant){
+        let index = self.hash(key.clone()) % self.capacity;
         let shared = self.shared_bucket.get_mut(index).unwrap();
         let mut state = shared.state.write().unwrap();
         let mut notify = false;
@@ -120,7 +125,7 @@ impl BucketDb{
 
         if let when = expires_at {
             state.expirations.insert((when.clone(), key.clone()));
-            state.key_expirations.insert(key.to_string(), when);
+            state.key_expirations.insert(key, when);
         }
         drop(state);
         if notify {
@@ -132,16 +137,18 @@ impl BucketDb{
 
     }
 
-    pub fn set(&mut self, key: String, value: Bytes, expire: Option<Duration>) {
+    pub fn set(&mut self, key: Bytes, value: Bytes, expire: Option<Duration>) {
 
-        let index = self.hash(key.as_str()) % self.capacity;
+        let index = self.hash(key.clone()) % self.capacity;
         let shared = self.shared_bucket.get_mut(index).unwrap();
         let mut state = shared.state.write().unwrap();
 
         let mut notify = false;
         let expires_at = expire.map(|duration|{
             let when = Instant::now() + duration;
+
             notify = state.next_expiration().map(|expiration| expiration > when).unwrap_or(true);
+
             when
         });
         let prev = state.entries.insert(
@@ -161,18 +168,19 @@ impl BucketDb{
 
         if let Some(when) = expires_at {
             state.expirations.insert((when.clone(), key.clone()));
-            state.key_expirations.insert(key.to_string(), when);
+            state.key_expirations.insert(key.clone(), when);
         }
         drop(state);
+
         if notify {
             shared.background_task.notify_one();
         }
     }
 
 
-    pub fn subscribe(&mut self, key: String) -> broadcast::Receiver<Bytes>{
+    pub fn subscribe(&mut self, key: Bytes) -> broadcast::Receiver<Bytes>{
 
-        let index = self.hash(key.as_str()) % self.capacity;
+        let index = self.hash(key.clone()) % self.capacity;
         use std::collections::hash_map::Entry;
         let mut state;
         let shared = self.shared_bucket.get_mut(index).unwrap();
@@ -187,11 +195,11 @@ impl BucketDb{
         }
     }
 
-    pub fn publish(&mut self, key: &str, value: Bytes) -> usize{
-        let index = self.hash(key) % self.capacity;
+    pub fn publish(&mut self, key: Bytes, value: Bytes) -> usize{
+        let index = self.hash(key.clone()) % self.capacity;
         let shared = self.shared_bucket.get_mut(index).unwrap();
         let state = shared.state.write().unwrap();
-        state.pub_sub.get(key).map(|tx| tx.send(value).unwrap_or(0)).unwrap_or(0)
+        state.pub_sub.get(&key).map(|tx| tx.send(value).unwrap_or(0)).unwrap_or(0)
     }
 
     // fn shutdown_purge_task(&self){
@@ -217,10 +225,10 @@ struct Shared{
 
 #[derive(Debug)]
 struct State {
-    entries: BTreeMap<String, Entry>,
-    pub_sub: HashMap<String, broadcast::Sender<Bytes>>,
-    expirations: BTreeSet<(Instant, String)>,
-    key_expirations: HashMap<String, Instant>,
+    entries: BTreeMap<Bytes, Entry>,
+    pub_sub: HashMap<Bytes, broadcast::Sender<Bytes>>,
+    expirations: BTreeSet<(Instant, Bytes)>,
+    key_expirations: HashMap<Bytes, Instant>,
     shutdown: bool,
 }
 
@@ -265,13 +273,15 @@ impl Shared {
             }
             state.entries.remove(key);
             state.key_expirations.remove(key);
-            state.expirations.remove(&(when, key.to_string()));
+            state.expirations.remove(&(when, key.clone()));
 
 
         }
         None
     }
-    fn is_shutdown(&self) -> bool {self.state.read().unwrap().shutdown}
+    fn is_shutdown(&self) -> bool {
+        self.state.read().unwrap().shutdown
+    }
 }
 
 
@@ -286,12 +296,13 @@ impl State {
 async fn purge_expired_tasks(shared: Arc<Shared>) {
     while !shared.is_shutdown() {
         if let Some(when) = shared.purge_expired_keys() {
+
             tokio::select! {
                 _ = time::sleep_until(when) => {
-                    // println!("purge expired keys sleep task");
+
                 },
                 _ = shared.background_task.notified() => {
-                    // println!("purge expired keys");
+
                 }
             }
         }else{

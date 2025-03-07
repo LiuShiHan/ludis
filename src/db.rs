@@ -86,9 +86,9 @@ impl BucketDb{
     }
 
 
-    pub fn set_newest(&mut self, key: Bytes, value: Bytes, expire: Instant){
+    pub fn set_newest(&self, key: Bytes, value: Bytes, expire: Instant){
         let index = self.hash(key.clone()) % self.capacity;
-        let shared = self.shared_bucket.get_mut(index).unwrap();
+        let shared = self.shared_bucket.get(index).unwrap();
         let mut state = shared.state.write().unwrap();
         let mut notify = false;
         let expires_at = {
@@ -135,10 +135,10 @@ impl BucketDb{
 
     }
 
-    pub fn set(&mut self, key: Bytes, value: Bytes, expire: Option<Duration>) {
+    pub fn set(&self, key: Bytes, value: Bytes, expire: Option<Duration>) {
 
         let index = self.hash(key.clone()) % self.capacity;
-        let shared = self.shared_bucket.get_mut(index).unwrap();
+        let shared = self.shared_bucket.get(index).unwrap();
         let mut state = shared.state.write().unwrap();
 
         let mut notify = false;
@@ -176,12 +176,12 @@ impl BucketDb{
     }
 
 
-    pub fn subscribe(&mut self, key: Bytes) -> broadcast::Receiver<Bytes>{
+    pub fn subscribe(& self, key: Bytes) -> broadcast::Receiver<Bytes>{
 
         let index = self.hash(key.clone()) % self.capacity;
         use std::collections::hash_map::Entry;
         let mut state;
-        let shared = self.shared_bucket.get_mut(index).unwrap();
+        let shared = self.shared_bucket.get(index).unwrap();
         state = shared.state.write().unwrap();
         match state.pub_sub.entry(key) {
             Entry::Occupied(mut entry) => {entry.get_mut().subscribe()},
@@ -193,9 +193,9 @@ impl BucketDb{
         }
     }
 
-    pub fn publish(&mut self, key: Bytes, value: Bytes) -> usize{
+    pub fn publish(& self, key: Bytes, value: Bytes) -> usize{
         let index = self.hash(key.clone()) % self.capacity;
-        let shared = self.shared_bucket.get_mut(index).unwrap();
+        let shared = self.shared_bucket.get(index).unwrap();
         let state = shared.state.write().unwrap();
         state.pub_sub.get(&key).map(|tx| tx.send(value).unwrap_or(0)).unwrap_or(0)
     }

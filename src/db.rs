@@ -86,13 +86,13 @@ impl BucketDb{
     }
 
 
-    pub fn set_newest(&self, key: Bytes, value: Bytes, expire: Instant){
+    pub fn set_newest(&self, key: Bytes, value: Bytes, expire: Duration){
         let index = self.hash(key.clone()) % self.capacity;
         let shared = self.shared_bucket.get(index).unwrap();
         let mut state = shared.state.write().unwrap();
         let mut notify = false;
         let expires_at = {
-            let when = expire;
+            let when = Instant::now() + expire;
             notify = state.next_expiration().map(|expiration| expiration > when).unwrap_or(true);
             when
         };

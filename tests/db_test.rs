@@ -31,11 +31,11 @@ async fn test_db() {
 async fn test_new_keys(){
     let mut db_service = db::BucketDb::new(10);
 
-    db_service.set_newest("aa".into(), Bytes::from("xzczxczx"), Instant::now() + Duration::from_secs(10));
-    db_service.set_newest("aa".into(), Bytes::from("aaaaadascasc"), Instant::now() + Duration::from_secs(2));
-    db_service.set_newest("aa".into(), Bytes::from("aaaaadascasc"), Instant::now() + Duration::from_secs(2));
-    db_service.set_newest("aa".into(), Bytes::from("aaaaadascasc"), Instant::now() + Duration::from_secs(2));
-    db_service.set_newest("aa".into(), Bytes::from("aaaaadascascxzczxc"), Instant::now() + Duration::from_secs(3));
+    db_service.set_newest("aa".into(), Bytes::from("xzczxczx"), Duration::from_secs(10));
+    db_service.set_newest("aa".into(), Bytes::from("aaaaadascasc"), Duration::from_secs(2));
+    db_service.set_newest("aa".into(), Bytes::from("aaaaadascasc"), Duration::from_secs(2));
+    db_service.set_newest("aa".into(), Bytes::from("aaaaadascasc"), Duration::from_secs(2));
+    db_service.set_newest("aa".into(), Bytes::from("aaaaadascascxzczxc"), Duration::from_secs(3));
     println!("{:?}", db_service.get("aa".into()));
 }
 

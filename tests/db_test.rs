@@ -13,7 +13,6 @@ async fn test_instant(){
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
-#[tokio::test]
 async fn test_db() {
     // let m = DashMap::new();
     // m.insert(String::from("test"), Bytes::from("test"));

@@ -14,7 +14,6 @@ pub struct BucketDb{
 
 impl BucketDb{
     pub fn new(capacity: usize) -> Self{
-
         let mut shared_bucket = Vec::with_capacity(capacity);
         for _ in 0..capacity {
             let shared = Arc::new(Shared::new());
@@ -25,8 +24,6 @@ impl BucketDb{
             capacity,
             shared_bucket,
         }
-
-
     }
 
     fn hash(&self, key: Bytes) -> usize{
@@ -47,12 +44,13 @@ impl BucketDb{
         }
     }
 
+
     pub fn keys(&self, key_start_op :Option<Bytes>) -> Vec<Bytes> {
-        let key_start;
+
 
         match key_start_op {
             Some(start_key) => {
-                key_start = start_key;
+                let key_start = start_key;
                 let mut end = key_start.to_vec();
                 if let Some(last_byte) = end.last_mut() {
                     *last_byte += 1;

@@ -37,6 +37,7 @@ async fn test_new_keys(){
     db_service.set_newest("aa".into(), Bytes::from("aaaaadascasc"), Duration::from_secs(2));
     db_service.set_newest("aa".into(), Bytes::from("aaaaadascascxzczxc"), Duration::from_secs(3));
     println!("{:?}", db_service.get("aa".into()));
+
 }
 
 
@@ -44,9 +45,19 @@ async fn test_new_keys(){
 
 
 #[tokio::test]
+async fn test_cmp(){
+    let a = Bytes::from("aaa");
+    let mut b = a.to_vec().clone();
+    b.push(u8::MAX);
+    let b = Bytes::from(b);
+    println!("{:?}", a<b)
+}
+
+
+
+#[tokio::test]
 async fn test_keys() {
     let mut db_service = db::BucketDb::new(10);
-
     db_service.set(Bytes::from("aa"), Bytes::from("aaaaadascasc"), Option::from(Duration::from_secs(2)));
     db_service.set(Bytes::from("vasdad"), Bytes::from("aaaaadascasc"), Option::from(Duration::from_secs(2)));
     db_service.set(Bytes::from("sadad"), Bytes::from("aaaaadascasc"), Option::from(Duration::from_secs(2)));
@@ -56,21 +67,10 @@ async fn test_keys() {
     db_service.set(Bytes::from("asdasdsadasd"), Bytes::from("aaaaadascasc"), Option::from(Duration::from_secs(2)));
     db_service.set(Bytes::from("031dasdadawd"), Bytes::from("aaaaadascasc"), Option::from(Duration::from_secs(2)));
     println!("{:?}", db_service.keys(Some("a".into())));
+    for i in db_service.iter(){
+        println!("{:?}", i);
+    }
 }
-
-#[tokio::test]
-async fn test_subscribe() {
-    let mut db = db::BucketDb::new(10);
-
-    let mut re = db.subscribe("aaaa".into());
-    let mut re2 = db.subscribe("aaaa".into());
-    let pe = db.publish(Bytes::from("aaaa"), Bytes::from("aaaaadascasc"));
-    println!("{:?}", re.recv().await.unwrap());
-    // println!("{:?}", re.recv().await.unwrap());
-    println!("{:?}", re2.recv().await.unwrap());
-
-}
-
 
 
 #[tokio::test]

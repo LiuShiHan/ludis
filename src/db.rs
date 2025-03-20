@@ -1,9 +1,11 @@
 use tokio::sync::{broadcast, Notify};
 use tokio::time::{self, Duration, Instant};
-use bytes::Bytes;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use bytes::{Bytes, BytesMut};
+use std::collections::{BTreeMap, BTreeSet, HashMap, btree_map, hash_map};
+use std::collections::Bound::{Included, Unbounded, Excluded};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{Arc, RwLock};
+
 
 
 #[derive(Debug)]
@@ -11,6 +13,70 @@ pub struct BucketDb{
     shared_bucket: Vec<Arc<Shared>>,
     capacity: usize,
 }
+
+
+pub struct BucketDbIterator<'a> {
+    db: &'a BucketDb,
+    current_bucket_index: usize,
+    current_key: Option<Bytes>,
+
+}
+
+impl BucketDbIterator<'_> {
+
+    fn new(db: &BucketDb) -> BucketDbIterator {
+        BucketDbIterator{
+            db,
+            current_bucket_index: 0,
+            current_key: None,
+        }
+    }
+
+    fn find_next(&self, index: usize, key: Bytes) -> Option<(Bytes, Entry)> {
+        let share = self.db.shared_bucket.get(index);
+        if share.is_none() {
+            return None
+        }
+        let binging = share.unwrap().state.read().unwrap();
+        let a = binging.entries.range((Excluded(key), Unbounded)).next().clone();
+        if let Some(a) = a {
+
+            let key_c = a.0.clone();
+            let entry_c = a.1.clone();
+            return Option::from((key_c, entry_c))
+        }
+        None
+
+    }
+
+}
+
+impl Iterator for BucketDbIterator<'_> {
+    type Item = (Bytes, Entry);
+    fn next(&mut self) -> Option<Self::Item> {
+
+        loop{
+
+            if self.current_bucket_index >= self.db.capacity {
+                return None
+            }
+            if self.current_key.is_none() {
+                self.current_key = Some(Bytes::new());
+            }
+            let res = self.find_next(self.current_bucket_index, self.current_key.clone().unwrap());
+
+            if res.is_some() {
+                self.current_key = Option::from(res.clone().unwrap().0.clone());
+                return res
+            }else{
+                self.current_bucket_index += 1;
+                self.current_key = Some(Bytes::new());
+            }
+        }
+    }
+}
+
+
 
 impl BucketDb{
     pub fn new(capacity: usize) -> Self{
@@ -26,11 +92,17 @@ impl BucketDb{
         }
     }
 
+    pub fn iter(&self) -> BucketDbIterator {
+        BucketDbIterator::new(&self)
+    }
+
     fn hash(&self, key: Bytes) -> usize{
         let mut hasher = DefaultHasher::new();
         key.hash(&mut hasher);
         hasher.finish() as usize
     }
+
+
 
     pub fn get(&self, key: Bytes) -> Option<Bytes>{
         let index = self.hash(key.clone()) % self.capacity;
@@ -44,19 +116,21 @@ impl BucketDb{
         }
     }
 
+    fn get_next_key(&self, key: Bytes) -> Bytes {
+        let mut end = key.to_vec();
+        end.push(u8::MAX);
+        Bytes::from(end)
+    }
+
 
     pub fn keys(&self, key_start_op :Option<Bytes>) -> Vec<Bytes> {
 
 
         match key_start_op {
             Some(start_key) => {
-                let key_start = start_key;
-                let mut end = key_start.to_vec();
-                if let Some(last_byte) = end.last_mut() {
-                    *last_byte += 1;
-                }
-                let key_end = Bytes::from(end);
-                self.shared_bucket.iter().flat_map(|bucket|{bucket.state.read().unwrap().entries.range(key_start.clone()..key_end.clone()).map(|(key, _)| key.clone()).collect::<Vec<_>>()}).collect()
+                let key_start = start_key.clone();
+                let key_end = self.get_next_key(start_key.clone());
+                self.shared_bucket.iter().flat_map(|bucket|{bucket.state.read().unwrap().entries.range((Included(key_start.clone()), Included(key_end.clone()))).map(|(key, _)| key.clone()).collect::<Vec<_>>()}).collect()
             },
             None => {
                 // self.shared_bucket.iter().flat_map(|bucket|{bucket.state.read().unwrap().entries.keys().collect()}).collect()
@@ -96,7 +170,6 @@ impl BucketDb{
             notify = state.next_expiration().map(|expiration| expiration > when).unwrap_or(true);
             when
         };
-
         match state.key_expirations.get(&key) {
             Some(expire_time) => {
                 if expire_time > &expires_at {
@@ -113,7 +186,6 @@ impl BucketDb{
                 expires_at: Some(expires_at),
             }
         );
-
         if let Some(prev) = prev {
             if let Some(when) = prev.expires_at {
                 state.expirations.remove(&(when, key.clone()));
@@ -129,10 +201,6 @@ impl BucketDb{
         if notify {
             shared.background_task.notify_one();
         }
-
-
-
-
     }
 
     pub fn set(&self, key: Bytes, value: Bytes, expire: Option<Duration>) {
@@ -176,29 +244,9 @@ impl BucketDb{
     }
 
 
-    pub fn subscribe(& self, key: Bytes) -> broadcast::Receiver<Bytes>{
 
-        let index = self.hash(key.clone()) % self.capacity;
-        use std::collections::hash_map::Entry;
-        let mut state;
-        let shared = self.shared_bucket.get(index).unwrap();
-        state = shared.state.write().unwrap();
-        match state.pub_sub.entry(key) {
-            Entry::Occupied(mut entry) => {entry.get_mut().subscribe()},
-            Entry::Vacant(entry) => {
-                let (tx, rx) = broadcast::channel(1024);
-                entry.insert(tx);
-                rx
-            }
-        }
-    }
 
-    pub fn publish(& self, key: Bytes, value: Bytes) -> usize{
-        let index = self.hash(key.clone()) % self.capacity;
-        let shared = self.shared_bucket.get(index).unwrap();
-        let state = shared.state.write().unwrap();
-        state.pub_sub.get(&key).map(|tx| tx.send(value).unwrap_or(0)).unwrap_or(0)
-    }
+
 
     // fn shutdown_purge_task(&self){
     //     for Some(index) in self.shared_bucket.iter(){
@@ -235,8 +283,8 @@ struct State {
 
 
 
-#[derive(Debug)]
-struct Entry {
+#[derive(Debug, Clone)]
+pub struct Entry {
     data: Bytes,
     expires_at: Option<Instant>,
 }
@@ -309,5 +357,8 @@ async fn purge_expired_tasks(shared: Arc<Shared>) {
 
     }
 }
+
+
+
 
 

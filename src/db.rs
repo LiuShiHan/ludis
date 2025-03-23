@@ -15,30 +15,61 @@ pub struct BucketDb{
 }
 
 
-pub struct BucketDbIterator<'a> {
+pub struct BucketDbRangeIterator<'a> {
     db: &'a BucketDb,
     current_bucket_index: usize,
     current_key: Option<Bytes>,
-
+    start_key: Bytes,
+    end_key: Bytes,
 }
 
-impl BucketDbIterator<'_> {
-
-    fn new(db: &BucketDb) -> BucketDbIterator {
-        BucketDbIterator{
+impl BucketDbRangeIterator<'_>{
+    fn new(db: &BucketDb, start_key_raw: Option<Bytes>) -> BucketDbRangeIterator {
+        let end_key: Bytes;
+        let start_key: Bytes;
+        if start_key_raw.is_none() {
+            start_key = Bytes::new();
+            end_key = db.get_next_key(start_key.clone());
+        }else {
+            start_key = start_key_raw.unwrap();
+            end_key = db.get_next_key(start_key.clone());
+        }
+        BucketDbRangeIterator{
             db,
+            end_key,
             current_bucket_index: 0,
             current_key: None,
+            start_key,
         }
     }
 
-    fn find_next(&self, index: usize, key: Bytes) -> Option<(Bytes, Entry)> {
+    fn find_current(&self, index: usize, key:Bytes) -> Option<(Bytes, Entry)>{
         let share = self.db.shared_bucket.get(index);
+
         if share.is_none() {
             return None
         }
         let binging = share.unwrap().state.read().unwrap();
-        let a = binging.entries.range((Excluded(key), Unbounded)).next().clone();
+        let a = binging.entries.get(&key);
+        if let Some(a) = a {
+
+            let key_c = key;
+            let entry_c = a.clone();
+            return Option::from((key_c, entry_c))
+        }
+        None
+
+
+    }
+
+    fn find_next(&self, index: usize, key: Bytes) -> Option<(Bytes, Entry)> {
+        let share = self.db.shared_bucket.get(index);
+
+        if share.is_none() {
+            return None
+        }
+        let binging = share.unwrap().state.read().unwrap();
+        let a = binging.entries.range((Excluded(key), Included(self.end_key.clone()))).next().clone();
         if let Some(a) = a {
 
             let key_c = a.0.clone();
@@ -46,22 +77,25 @@ impl BucketDbIterator<'_> {
             return Option::from((key_c, entry_c))
         }
         None
-
     }
 
 }
 
-impl Iterator for BucketDbIterator<'_> {
+
+impl Iterator for BucketDbRangeIterator<'_>{
     type Item = (Bytes, Entry);
+
     fn next(&mut self) -> Option<Self::Item> {
-
-        loop{
-
+        loop {
             if self.current_bucket_index >= self.db.capacity {
                 return None
             }
             if self.current_key.is_none() {
-                self.current_key = Some(Bytes::new());
+                self.current_key = Some(self.start_key.clone());
+                if let Some(res) = self.find_current(self.current_bucket_index, self.current_key.clone().unwrap()) {
+                    return Some(res)
+                }
+
             }
             let res = self.find_next(self.current_bucket_index, self.current_key.clone().unwrap());
 
@@ -70,12 +104,16 @@ impl Iterator for BucketDbIterator<'_> {
                 return res
             }else{
                 self.current_bucket_index += 1;
-                self.current_key = Some(Bytes::new());
+                self.current_key = Some(self.start_key.clone());
+                if let Some(res) = self.find_current(self.current_bucket_index, self.current_key.clone().unwrap()) {
+                    return Some(res)
+                }
             }
+
         }
     }
-}
 
+}
 
 
 impl BucketDb{
@@ -92,8 +130,12 @@ impl BucketDb{
         }
     }
 
-    pub fn iter(&self) -> BucketDbIterator {
-        BucketDbIterator::new(&self)
+    pub fn iter(&self) -> BucketDbRangeIterator {
+        BucketDbRangeIterator::new(self, None)
+    }
+
+    pub fn range(&self, start_key: Option<Bytes>) -> BucketDbRangeIterator {
+        BucketDbRangeIterator::new(self, start_key)
     }
 
     fn hash(&self, key: Bytes) -> usize{
@@ -134,7 +176,7 @@ impl BucketDb{
             },
             None => {
                 // self.shared_bucket.iter().flat_map(|bucket|{bucket.state.read().unwrap().entries.keys().collect()}).collect()
-                self.shared_bucket.iter().flat_map(|bucket|{bucket.state.read().unwrap().entries.keys().map(|(key)| key.clone()).collect::<Vec<_>>()}).collect()
+                self.shared_bucket.iter().flat_map(|bucket|{bucket.state.read().unwrap().entries.keys().map(|key| key.clone()).collect::<Vec<_>>()}).collect()
             }
         }
 
@@ -247,12 +289,6 @@ impl BucketDb{
 
 
 
-
-    // fn shutdown_purge_task(&self){
-    //     for Some(index) in self.shared_bucket.iter(){
-    //
-    //     }
-    // }
 
 
 

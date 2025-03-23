@@ -56,6 +56,24 @@ async fn test_cmp(){
 
 
 #[tokio::test]
+async fn test_range_keys() {
+
+    let mut db_service = db::BucketDb::new(10);
+    db_service.set(Bytes::from("aa"), Bytes::from("aaaaadascasc"), Option::from(Duration::from_secs(2)));
+    db_service.set(Bytes::from("vasdad"), Bytes::from("aaaaadascasc"), Option::from(Duration::from_secs(2)));
+    db_service.set(Bytes::from("sadad"), Bytes::from("aaaaadascasc"), Option::from(Duration::from_secs(2)));
+    db_service.set(Bytes::from("aqwewqe"), Bytes::from("aaaaadascasc"), Option::from(Duration::from_secs(2)));
+    db_service.set(Bytes::from("vlzczxc"), Bytes::from("aaaaadascasc"), Option::from(Duration::from_secs(2)));
+    db_service.set(Bytes::from("1313213213"), Bytes::from("aaaaadascasc"), Option::from(Duration::from_secs(2)));
+    db_service.set(Bytes::from("asdasdsadasd"), Bytes::from("aaaaadascasc"), Option::from(Duration::from_secs(2)));
+    db_service.set(Bytes::from("031dasdadawd"), Bytes::from("aaaaadascasc"), Option::from(Duration::from_secs(2)));
+    // println!("{:?}", db_service.keys(Some("a".into())));
+    for i in db_service.range(Option::from(Bytes::from("1"))){
+        println!("{:?}", i);
+    }
+}
+
+#[tokio::test]
 async fn test_keys() {
 
     let mut db_service = db::BucketDb::new(10);

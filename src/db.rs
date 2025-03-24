@@ -325,6 +325,14 @@ pub struct Entry {
     expires_at: Option<Instant>,
 }
 
+impl Entry {
+
+    pub fn get_data(&self) -> Bytes {
+        self.data.clone()
+    }
+
+}
+
 
 
 impl Shared {
